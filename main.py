@@ -5,16 +5,6 @@ import multiprocessing as mp
 import math
 import os
 import nethook
-import torch
-import json
-import numpy as np
-import pandas as pd
-
-import transformers
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-from packaging import version
-assert version.parse(transformers.__version__) >= version.parse("4.23.0")
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -35,7 +25,7 @@ def parse_line(line):
         return [str(sent) for sent in doc.sents]
 
 
-def parse_data_file(data_file, max_sentences, pool,shuffle=True):
+def parse_data_file(data_file, max_sentences, pool,shuffle=False):
     data_file = data_file
     
     multiprocess = 20
@@ -46,14 +36,18 @@ def parse_data_file(data_file, max_sentences, pool,shuffle=True):
     if shuffle:
         random.seed(0xdead)
         random.shuffle(lines)
-        
+    
+    
+    
     window = 5
     lines2 = []
     for i in range(0,len(lines)-window):
         line = lines[i:i+window]
-        line = "".join(line)
-        lines2.append(line)
+        lines2.append("".join(line))
     lines = lines2
+    
+    
+    
     
     max_sentences = max_sentences
     # max_sentences = max_sentences
@@ -87,19 +81,33 @@ def get_files(path):
 
 
 pool = mp.Pool(20)
-files = get_files('/u/amo-d1/grad/mha361/work/Code-LMs/Data/Code/Go/')
+files1 = get_files('/u/amo-d1/grad/mha361/work/Code-LMs/Data/Code/Python/')
+files2 = get_files('/u/amo-d1/grad/mha361/work/Code-LMs/Data/Code/Java/')
 
-files = files[:50]
+files = files1[:500]
+# files.extend(files2[:250])
+
+random.shuffle(files)
 for file in tqdm(files):
     p = parse_data_file(file,-1,pool)
     parsed.extend(p)
 pool.terminate()
 
-tokenizer_polycoder = AutoTokenizer.from_pretrained("NinedayWang/PolyCoder-2.7B")
-model_polycoder = AutoModelForCausalLM.from_pretrained("NinedayWang/PolyCoder-2.7B")
+
+import transformers
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+from packaging import version
+assert version.parse(transformers.__version__) >= version.parse("4.23.0")
+
+tokenizer_polycoder = AutoTokenizer.from_pretrained("Salesforce/codegen-2B-mono")
+model_polycoder = AutoModelForCausalLM.from_pretrained("Salesforce/codegen-2B-mono")
+
+
 
 model_polycoder = model_polycoder.to("cuda")
 tokenizer_polycoder.pad_token = tokenizer_polycoder.eos_token
+
 
 tokenizer_polycoder.pad_token = tokenizer_polycoder.eos_token
 def _build_batches(parsed, batch_size):
@@ -108,10 +116,10 @@ def _build_batches(parsed, batch_size):
         
         to = min(len(parsed),batch_size*(i+1))
 
-        yield tokenizer_polycoder(parsed[batch_size*i:to],padding=True, truncation=True, max_length=100, return_tensors="pt",)
+        yield tokenizer_polycoder(parsed[batch_size*i:to],padding=True, truncation=True,max_length=200, return_tensors="pt",)
         
-
-
+        
+        
 def _aggregate_layer_values(all_values, batch_index, start_idx, seq_len):
     max_layer_vals = []
     max_layer_pos = []
@@ -128,13 +136,14 @@ def _aggregate_layer_values(all_values, batch_index, start_idx, seq_len):
             #For the sparsity experiment: we use a randomly chosen position for all layers
     return max_layer_vals, max_layer_pos
 
+import torch
 
 def score(parsed1):
-    batch_size = 5
+    batch_size = 3
     l = []
     results = []
     for i in range(0,32):
-        l.append('gpt_neox.layers.'+str(i)+'.mlp.dense_h_to_4h')
+        l.append('transformer.h.'+str(i)+'.mlp.fc_in')
     with nethook.TraceDict(model_polycoder, l) as ret:
         for batch in _build_batches(parsed1,batch_size):#,total=math.ceil(len(parsed)/batch_size)):
             torch.cuda.empty_cache()
@@ -164,6 +173,10 @@ def score(parsed1):
     
     return results
 
+
+import json
+import numpy as np
+import pandas as pd
 
 def format_ffn_values(hypos, sentences, pos_neg, extract_mode, output_values_shape=False):
     for i, hypo in enumerate(hypos):
@@ -327,7 +340,6 @@ def get_trigger_examples(all_ffn_values, dims_for_analysis, num_sentences, value
                 dim_outputs.append(layer_output)
             fd.write(json.dumps({"dim": dim, "top_values": dim_outputs}) + '\n')
             
-            
 def get_hypos():
         for batch_i in tqdm(list(range(0, len(parsed), 1000))):
             for hypo_parsed in score(
@@ -346,5 +358,6 @@ get_trigger_examples(all_ffn_values,
                     dims_for_analysis=22,
                     num_sentences=len(parsed),
                     values_shape=values_shape,
-                    output_file="top50_go.jsonl",
+                    output_file="top50_python_codegen.jsonl",
                     top_k=50)
+
