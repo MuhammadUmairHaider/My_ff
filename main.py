@@ -5,6 +5,7 @@ import multiprocessing as mp
 import math
 import os
 import nethook
+import heapq
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -237,49 +238,6 @@ def format_ffn_values(hypos, sentences, pos_neg, extract_mode, output_values_sha
             }) + '\n'
 
 
-def extract_ffn_info(all_ffn_values, extract_mode, output_file):
-    print("load extracted values...")
-    records = []
-    skip_count = 0
-    for i, ffn_vals in tqdm(enumerate(all_ffn_values)):
-        loaded_vals = json.loads(ffn_vals)
-        # random_pos = loaded_vals['random_pos']
-        # if random_pos == -1:
-        #     skip_count += 1
-        #     continue
-        records.append(loaded_vals)
-
-    print(f"skipped {skip_count} examples.")
-
-    # store as dataframe
-    df = pd.DataFrame.from_records(records)
-    if extract_mode == "dim":
-        df = df[
-            [col for col in df.columns
-             if col in [
-                 'text', 'output_dist_vals', 'coeffs_vals', 'residual_ffn_output_rank', 'residual_ffn_output_prob',
-                 'residual_output_prob', 'residual_ffn_argmax', 'residual_ffn_argmax_prob',
-                 'ffn_residual_output_rank', 'ffn_residual_output_prob',
-                 'dim_pattern_preds', 'dim_pattern_output_rank',
-                 'dim_pattern_ffn_output_rank', 'dim_pattern_ffn_output_prob', 'random_pos']
-             ]
-        ]
-    else:
-        assert extract_mode == "layer"
-        df = df[
-            [col for col in df.columns
-             if col in [
-                 'text', 'output_dist_vals', 'layer_output_argmax', 'layer_output_argmax_prob',
-                 'residual_argmax', 'residual_argmax_prob', 'residual_argmax_change',
-                 'residual_output_rank', 'residual_output_prob', 'ffn_matching_dims_count',
-                 'ffn_output_rank', 'ffn_output_prob', 'ffn_residual_output_rank', 'ffn_residual_output_prob',
-                 'ffn_argmax', 'ffn_argmax_prob',
-                 'coeffs_l0', 'coeffs_residual_rank', 'random_pos']
-             ]
-        ]
-    df.to_pickle(output_file)
-
-
 def get_trigger_examples(all_ffn_values, dims_for_analysis, num_sentences, values_shape, output_file,
                          top_k=5, apply_relu=True, num_layers=32):
     values_key = 'max_fc1_vals'
@@ -339,7 +297,32 @@ def get_trigger_examples(all_ffn_values, dims_for_analysis, num_sentences, value
                     })
                 dim_outputs.append(layer_output)
             fd.write(json.dumps({"dim": dim, "top_values": dim_outputs}) + '\n')
-            
+
+
+def normalize_sublists(matrix):
+    normalized_matrix = []
+    for sublist in matrix:
+        normalized_sublist = sublist / np.max(sublist)
+        normalized_matrix.append(normalized_sublist)
+    return normalized_matrix
+
+def get_top_k(matrix, k):
+    matrix = normalize_sublists(matrix)
+    flattened_list = [item for sublist in matrix for item in sublist]  # Flatten the 2D list
+    top_k_indices_flattened = heapq.nlargest(k, range(len(flattened_list)), key=flattened_list.__getitem__)
+    row_length = len(matrix[0])
+    top_k_elements = [(index // row_length, index % row_length, flattened_list[index]) for index in top_k_indices_flattened]
+    return top_k_elements
+
+#my func()
+def get_trigger_keys(all_ffn_values,num_sentences):
+    for i, ffn_vals in enumerate(tqdm(all_ffn_values, total=num_sentences)):
+        loaded_vals = ffn_vals
+        print(loaded_vals['text'])
+        print(get_top_k(loaded_vals['max_fc1_vals'],50))
+
+
+
 def get_hypos():
         for batch_i in tqdm(list(range(0, len(parsed), 1000))):
             for hypo_parsed in score(
@@ -354,10 +337,12 @@ all_ffn_values = format_ffn_values(hypos=get_hypos(),
                                    output_values_shape=True)
 values_shape = next(all_ffn_values)
 
-get_trigger_examples(all_ffn_values,
-                    dims_for_analysis=22,
-                    num_sentences=len(parsed),
-                    values_shape=values_shape,
-                    output_file="top50_python_codegen.jsonl",
-                    top_k=50)
+get_trigger_keys(all_ffn_values=all_ffn_values, num_sentences=len(parsed))
+
+# get_trigger_examples(all_ffn_values,
+#                     dims_for_analysis=22,
+#                     num_sentences=len(parsed),
+#                     values_shape=values_shape,
+#                     output_file="top50_python_codegen_5_line.jsonl",
+#                     top_k=50)
 

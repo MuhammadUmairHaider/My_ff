@@ -49,7 +49,7 @@ if __name__ == "__main__":
     analysis_input = list(tqdm(jl.open(args.input_file),
                                total=int(os.popen("wc -l %s" % args.input_file).read().split(" ")[0])))
     # en_lm = TransformerLanguageModel.from_pretrained(args.model_dir, 'model.pt', tokenizer='moses')
-    tokenizer_polycoder = AutoTokenizer.from_pretrained("NinedayWang/PolyCoder-2.7B")
+    tokenizer_polycoder = AutoTokenizer.from_pretrained("Salesforce/codegen-2B-mono")
     for dim_inputs in tqdm(analysis_input):
         for layer_index in list(range(0, 32)):
             dim = dim_inputs['dim']
@@ -61,7 +61,7 @@ if __name__ == "__main__":
                     text = tokenizer_polycoder.tokenize(topval['text'])#[:int(topval['token_indice'])+1]
                     # print("\n",text)
                     # text[-1] = f'*{text[-1]}*'
-                    text = ' '.join(text)
+                    text = ''.join(text)
                     text = text.replace("Ġ"," ")
                     text = text.replace("Ċ","\n")
                     text = text.replace("ĉ","   ")
