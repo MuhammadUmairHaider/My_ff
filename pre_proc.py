@@ -4,6 +4,7 @@ from tqdm import tqdm
 import multiprocessing as mp
 import os
 import re
+import numpy as np
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -38,12 +39,12 @@ def parse_data_file(data_file, max_sentences, pool,shuffle=False):
     
     
     
-    window = 5
-    lines2 = []
-    for i in range(0,len(lines)-window):
-        line = lines[i:i+window]
-        lines2.append("".join(line))
-    lines = lines2
+    # window = 5
+    # lines2 = []
+    # for i in range(0,len(lines)-window):
+    #     line = lines[i:i+window]
+    #     lines2.append("".join(line))
+    # lines = lines2
     
     
     
@@ -77,23 +78,41 @@ def get_files(path):
         for filename in filenames:
             files.append(os.path.join(dirpath, filename))
     return files
-
+def get_k_l_from_file(file):
+    f = file.split('/')
+    f = f[len(f)-1].split('.')[0]
+    key,layer = f.split('_')
+    return int(key),int(layer)
 
 pool = mp.Pool(20)
 files1 = get_files('/u/amo-d1/grad/mha361/work/Code-LMs/Data/Code/Python/')
-files2 = get_files('/u/amo-d1/grad/mha361/work/Code-LMs/Data/Code/Java/')
+files2 = get_files('/u/amo-d1/grad/mha361/work/My_ff/java')
 
-files = files1[:500]
+files = files2[:500]
 # files.extend(files2[:250])
 
 random.shuffle(files)
+h_map = np.zeros(shape=(32,10240),dtype=bool)
 for file in tqdm(files):
     p = parse_data_file(file,-1,pool)
+    for pi in p:
+        pattern = r'(public static void main)'
+
+        matches = re.findall(pattern, pi, flags=re.IGNORECASE)
+        # print(p)
+        if matches != []:
+            key,layer = get_k_l_from_file(file)
+            h_map[layer][key] = True
+            print(layer,key,pi)
     parsed.extend(p)
 pool.terminate()
-for p in parsed:
-    pattern = r'(for|while)'
 
-    matches = re.findall(pattern, p, flags=re.IGNORECASE)
-    print(p)
-    print(matches)
+import matplotlib.pyplot as plt
+import numpy as np
+
+# get some data with true @ probability 80 %
+data = h_map
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.imshow(data, aspect='auto', cmap=plt.cm.gray, interpolation='nearest')
